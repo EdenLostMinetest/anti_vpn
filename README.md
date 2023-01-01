@@ -15,6 +15,8 @@ Minetest mod to block connections from known VPN egress IPs
    anti_vpn.provider.vpnapi.url = https://vpnapi.io
    ```
 
+   Also add `anti_vpn` to `secure.http_mods`.
+
 1. Restart your Minetest server.
 
 ## Theory of Operation
@@ -82,8 +84,9 @@ kicks any that map to a VPN.
         done
       ```
 
-   1. Edit `minetest.conf` and change the `anti_vpn.provider.vpnapi.url` to
-      point to "http://localhost:48888".
+   1. Edit `minetest.conf`:
+      1. Add `anti_vpn.provider.vpnapi.url = http://localhost:48888`.
+      1. Add `anti_vpn` to `secure.http_mods`.
 
    1. Run the python script.  It runs in the foreground.
 
