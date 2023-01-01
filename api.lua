@@ -4,10 +4,22 @@
 -- Our namespace.
 anti_vpn = {}
 
+-- By default, talk to local testing stub.  For production, you should
+-- configure the settings in `minetest.conf`.  See the `README.md` file.
 local DEFAULT_URL = 'http://localhost:48888'
-local USER_AGENT = 'MineTest-AntiVpn-v0.1' -- TODO: Add github URL.
+
+-- User agent to transmit with HTTP requests.
+local USER_AGENT = 'https://github.com/EdenLostMinetest/anti_vpn'
+
+-- Timeout (seconds) when sending HTTP requests.
 local DEFAULT_TIMEOUT = 10
+
+-- How often (seconds) to run the async background tasks.
 local ASYNC_WORKER_DELAY = 5
+
+-- Seconds to allow an outstanding request for an external lookup before
+-- allowing a repeat of the same.
+local GATING_THRESHOLD = 30
 
 -- For testing.  Normally this table should be empty.
 -- Map a player name (string) to an IPV4 address (string).
@@ -22,6 +34,10 @@ local http_api = nil
 --   'vpn' (boolean).
 --   'created' (seconds since unix epoch).
 local cache = {}
+
+-- List of outstanding IP lookups.  Used to prevent duplicate in-flight lookups.
+-- https://github.com/EdenLostMinetest/anti_vpn/issues/1
+local inflight_lookups = {}
 
 -- Allow list of players who can bypass anti_vpn checks, in mod_storage().
 -- Key = player name, Value = true.
@@ -92,12 +108,25 @@ local function enqueue_lookup(ip)
     -- If IP is already cached, then do nothing.
     if cache[ip] ~= nil then return end
 
+    -- If lookup already inflight, then do nothing.
+    -- Note that if our lookup fails, we won't know which IP failed, so
+    -- we cannot remove IPs for failed entries.  So we capture the time of the
+    -- request as well.
+    --    if (inflight_lookups[ip] ~= nil) and
+    --        ((inflight_lookups[ip] or 0) + GATING_THRESHOLD < os.time()) then
+    if (inflight_lookups[ip] ~= nil) then
+        minetest.log('warning', '[anti_vpn] gating request for ' .. ip)
+        return
+    end
+
     if http_api == nil then
         minetest.log('error', '[anti_vpn] http_api failed to allocate.  Add ' ..
                          minetest.get_current_modname() ..
                          ' to secure.http_mods.')
         return
     end
+
+    inflight_lookups[ip] = os.time()
 
     -- Queue up an external lookup.  This is async and can take several
     -- seconds, so we don't want to block the server during this time.
@@ -112,6 +141,18 @@ local function enqueue_lookup(ip)
     }, function(result)
         if result.succeeded then
             local tbl = minetest.parse_json(result.data)
+            if type(tbl) ~= 'table' then
+                minetest.log('error', '[anti_vpn] HTTP response is not JSON?')
+                minetest.log('error', dump(result))
+                return
+            end
+
+            if tbl['ip'] == nil then
+                minetest.log('error',
+                             '[anti_vpn] HTTP response is missing the original IP address.')
+                minetest.log('error', dump(result))
+                return
+            end
 
             local ip = tbl.ip
             local vpn = false
@@ -125,12 +166,13 @@ local function enqueue_lookup(ip)
             cache[ip]['created'] = os.time()
 
             anti_vpn.flush_mod_storage()
+            inflight_lookups[ip] = nil
 
             minetest.log('action', '[anti_vpn] HTTP response: ' .. ip .. ': ' ..
                              tostring(vpn))
         else
-            minetest.log('error',
-                         '[anti_vpn] HTTP request failed: ' .. dump(result))
+            minetest.log('error', '[anti_vpn] HTTP request failed')
+            minetest.log('error', dump(result))
         end
 
     end)
@@ -189,16 +231,7 @@ anti_vpn.init = function(http_api_provider)
                      DEFAULT_URL
 end
 
--- anti_vpn.cache_insert = function(ip, vpn, provider)
---    cache[ip] = {vpn = vpn, provider = provider, created = os.time()}
---    anti_vpn.flush_mod_storage()
--- end
-
--- Not strictly needed yet, but will hbe useful when we add admin chat commands
--- for adding/removing VPN entries, ASN blocking, user allow-listing, etc...
-anti_vpn.async_worker = function()
-    minetest.after(ASYNC_WORKER_DELAY, anti_vpn.async_worker)
-
+local function async_player_kick()
     local count = 0
     for _, player in ipairs(minetest.get_connected_players()) do
         local pname = player:get_player_name()
@@ -214,4 +247,23 @@ anti_vpn.async_worker = function()
     if count > 0 then
         minetest.log('action', '[anti_vpn] kicked ' .. count .. ' VPN users.')
     end
+end
+
+local function async_inflight_lookup_prune()
+    local ip_list = {}
+    local threshold = os.time() - GATING_THRESHOLD
+    for ip, timestamp in pairs(inflight_lookups) do
+        if timestamp < threshold then table.insert(ip_list, ip) end
+    end
+
+    for _, ip in ipairs(ip_list) do
+        minetest.log('action', '[anti_vpn] retiring expired lookup for ' .. ip)
+        inflight_lookups[ip] = nil
+    end
+end
+
+anti_vpn.async_worker = function()
+    minetest.after(ASYNC_WORKER_DELAY, anti_vpn.async_worker)
+    async_player_kick()
+    async_inflight_lookup_prune()
 end

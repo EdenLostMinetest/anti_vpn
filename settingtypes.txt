@@ -1,0 +1,3 @@
+anti_vpn.provider.vpnapi.apikey (API KEY for https://vpnapi.io/) string ""
+
+anti_vpn.provider.vpnapi.url (URL to make requests to) string "https://vpnapi.io"
