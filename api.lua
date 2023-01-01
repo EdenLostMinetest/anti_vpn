@@ -110,10 +110,8 @@ local function enqueue_lookup(ip)
         user_agent = USER_AGENT,
         timeout = DEFAULT_TIMEOUT
     }, function(result)
-
         if result.succeeded then
             local tbl = minetest.parse_json(result.data)
-            minetest.log('action', '[anti_vpn] ' .. dump(tbl))
 
             local ip = tbl.ip
             local vpn = false
@@ -128,6 +126,8 @@ local function enqueue_lookup(ip)
 
             anti_vpn.flush_mod_storage()
 
+            minetest.log('action', '[anti_vpn] HTTP response: ' .. ip .. ': ' ..
+                             tostring(vpn))
         else
             minetest.log('error',
                          '[anti_vpn] HTTP request failed: ' .. dump(result))
