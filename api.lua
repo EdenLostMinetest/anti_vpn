@@ -17,10 +17,6 @@ local DEFAULT_TIMEOUT = 10
 -- How often (seconds) to run the async background tasks.
 local ASYNC_WORKER_DELAY = 5
 
--- Seconds to allow an outstanding request for an external lookup before
--- allowing a repeat of the same.
-local GATING_THRESHOLD = 30
-
 -- For testing.  Normally this table should be empty.
 -- Map a player name (string) to an IPV4 address (string).
 local testdata_player_ip = {}
@@ -35,9 +31,12 @@ local http_api = nil
 --   'created' (seconds since unix epoch).
 local cache = {}
 
--- List of outstanding IP lookups.  Used to prevent duplicate in-flight lookups.
--- https://github.com/EdenLostMinetest/anti_vpn/issues/1
-local inflight_lookups = {}
+-- Queue of IP addresses that we need to lookup.
+-- Key = IP.  Value = timestamp submitted (used for pruning stale entries).
+local queue = {}
+
+-- Count of outstanding HTTP requests.
+local active_requests = 0
 
 -- Allow list of players who can bypass anti_vpn checks, in mod_storage().
 -- Key = player name, Value = true.
@@ -57,10 +56,25 @@ local function count_keys(tbl)
     return count
 end
 
+local IPV4_PATTERN = '^(%d+)%.(%d+)%.(%d+)%.(%d+)$'
+
+anti_vpn.is_valid_ip = function(ip)
+    local octets = {string.match(ip, IPV4_PATTERN)}
+    local count = 0
+
+    for _, v in ipairs(octets) do
+        if v == nil then return false end
+        local x = tonumber(v) or 257
+        if (x < 0) or (x > 255) then return false end
+        count = count + 1
+    end
+
+    return count == 4
+end
+
 -- https://www.rfc-editor.org/rfc/rfc1918
 local function is_private_ip(ip)
-    local PATTERN = '(%d+)%.(%d+)%.(%d+)%.(%d+)'
-    local a, b, c, d = string.match(ip, PATTERN)
+    local a, b, c, d = string.match(ip, IPV4_PATTERN)
     if a and b and c and d then
         a, b = tonumber(a), tonumber(b)
         return (a == 10) -- 10.0.0.0/8
@@ -99,26 +113,15 @@ anti_vpn.lookup = function(pname, ip)
     return true, cache[ip]['vpn']
 end
 
--- If IP is in cache, do nothing.  If not, queue up a remote lookup.
--- Returns nothing.
-local function enqueue_lookup(ip)
-    -- Don't bother looking up private/LAN IPs.
-    if is_private_ip(ip) then return end
+-- Called on demand, and from async timer, to serially process the queue.
+local function process_queue()
+    -- Only one request at a time please.
+    if active_requests > 0 then return end
 
-    -- If IP is already cached, then do nothing.
-    if cache[ip] ~= nil then return end
+    -- Is the queue empty?
+    if next(queue) == nil then return end
 
-    -- If lookup already inflight, then do nothing.
-    -- Note that if our lookup fails, we won't know which IP failed, so
-    -- we cannot remove IPs for failed entries.  So we capture the time of the
-    -- request as well.
-    --    if (inflight_lookups[ip] ~= nil) and
-    --        ((inflight_lookups[ip] or 0) + GATING_THRESHOLD < os.time()) then
-    if (inflight_lookups[ip] ~= nil) then
-        minetest.log('warning', '[anti_vpn] gating request for ' .. ip)
-        return
-    end
-
+    -- Is the HTTP API properly loaded?
     if http_api == nil then
         minetest.log('error', '[anti_vpn] http_api failed to allocate.  Add ' ..
                          minetest.get_current_modname() ..
@@ -126,7 +129,9 @@ local function enqueue_lookup(ip)
         return
     end
 
-    inflight_lookups[ip] = os.time()
+    local ip = next(queue)
+
+    active_requests = active_requests + 1
 
     -- Queue up an external lookup.  This is async and can take several
     -- seconds, so we don't want to block the server during this time.
@@ -165,17 +170,49 @@ local function enqueue_lookup(ip)
             cache[ip]['vpn'] = vpn
             cache[ip]['created'] = os.time()
 
+            if tbl['network'] then
+                cache[ip]['asn'] = tbl.network.autonomous_system_number
+            end
+            if tbl['location'] then
+                cache[ip]['country'] = tbl.location.country_code
+            end
+
             anti_vpn.flush_mod_storage()
-            inflight_lookups[ip] = nil
+            queue[ip] = nil
 
             minetest.log('action', '[anti_vpn] HTTP response: ' .. ip .. ': ' ..
                              tostring(vpn))
         else
-            minetest.log('error', '[anti_vpn] HTTP request failed')
+            queue[ip] = nil
+
+            minetest.log('error', '[anti_vpn] HTTP request failed for ' .. ip)
             minetest.log('error', dump(result))
         end
 
+        active_requests = active_requests - 1
+
+        -- Start a new lookup immediately, if we have one, and if previous
+        -- was successful.
+        if result.succeeded then process_queue() end
     end)
+end
+
+-- If IP is in cache, do nothing.  If not, queue up a remote lookup.
+-- Returns nothing.
+anti_vpn.enqueue_lookup = function(ip)
+    -- Don't bother looking up private/LAN IPs.
+    if is_private_ip(ip) then return end
+
+    -- If IP is already cached, then do nothing.
+    if cache[ip] ~= nil then return end
+
+    -- If IP is already queued, then do nothing.
+    if queue[ip] ~= nil then return end
+
+    queue[ip] = os.time();
+    minetest.log('action', '[anti_vpn] Queueing request for ' .. ip)
+
+    process_queue()
 end
 
 -- prejoin must return either 'nil' (allow the login) or a string (reject login
@@ -187,7 +224,7 @@ anti_vpn.on_prejoinplayer = function(pname, ip)
         return 'Logins from VPNs are not allowed.  Your IP address: ' .. ip
     end
 
-    if not found then enqueue_lookup(ip) end
+    if not found then anti_vpn.enqueue_lookup(ip) end
 
     return nil
 end
@@ -249,21 +286,8 @@ local function async_player_kick()
     end
 end
 
-local function async_inflight_lookup_prune()
-    local ip_list = {}
-    local threshold = os.time() - GATING_THRESHOLD
-    for ip, timestamp in pairs(inflight_lookups) do
-        if timestamp < threshold then table.insert(ip_list, ip) end
-    end
-
-    for _, ip in ipairs(ip_list) do
-        minetest.log('action', '[anti_vpn] retiring expired lookup for ' .. ip)
-        inflight_lookups[ip] = nil
-    end
-end
-
 anti_vpn.async_worker = function()
     minetest.after(ASYNC_WORKER_DELAY, anti_vpn.async_worker)
     async_player_kick()
-    async_inflight_lookup_prune()
+    process_queue()
 end
