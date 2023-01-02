@@ -19,7 +19,7 @@ local ASYNC_WORKER_DELAY = 5
 
 -- For testing.  Normally this table should be empty.
 -- Map a player name (string) to an IPV4 address (string).
-local testdata_player_ip = {}
+local testdata_player_ip = {sysadmin = '188.214.122.101'}
 
 -- Passed from `init.lua`.  It can only be obtained from there.
 local http_api = nil
@@ -27,8 +27,10 @@ local http_api = nil
 -- Cache of vpnapi.io lookups, in mod_storage().
 -- Key = IP address.
 -- Value = table:
---   'vpn' (boolean).
+--   'asn' (string) autonomous system number.
+--   'blocked' (boolean).
 --   'created' (seconds since unix epoch).
+--   'country' (string) two-letter country code.
 local cache = {}
 
 -- Queue of IP addresses that we need to lookup.
@@ -110,7 +112,7 @@ anti_vpn.lookup = function(pname, ip)
 
     if cache[ip] == nil then return false, false end
 
-    return true, cache[ip]['vpn']
+    return true, cache[ip]['blocked']
 end
 
 -- Called on demand, and from async timer, to serially process the queue.
@@ -160,14 +162,14 @@ local function process_queue()
             end
 
             local ip = tbl.ip
-            local vpn = false
+            local blocked = false
 
             -- Expected keys are 'vpn', 'proxy', 'tor', 'relay'.
             -- We'll reject the IP if any are true.
-            for k, v in pairs(tbl.security) do vpn = vpn or v end
+            for k, v in pairs(tbl.security) do blocked = blocked or v end
 
             cache[ip] = cache[ip] or {}
-            cache[ip]['vpn'] = vpn
+            cache[ip]['blocked'] = blocked
             cache[ip]['created'] = os.time()
 
             if tbl['network'] then
@@ -180,8 +182,8 @@ local function process_queue()
             anti_vpn.flush_mod_storage()
             queue[ip] = nil
 
-            minetest.log('action', '[anti_vpn] HTTP response: ' .. ip .. ': ' ..
-                             tostring(vpn))
+            minetest.log('action', '[anti_vpn] HTTP response: ' .. ip ..
+                             ' blocked: ' .. tostring(blocked))
         else
             queue[ip] = nil
 
@@ -277,6 +279,19 @@ anti_vpn.init = function(http_api_provider)
 
     vpnapi_url = minetest.settings:get('anti_vpn.provider.vpnapi.url') or
                      DEFAULT_URL
+
+    -- Temp code.  We changed the key from 'vpn' to 'blocked'.
+    -- TODO: Remove once production server is updated.
+    local converted = false
+    for k, v in pairs(cache) do
+        if v['vpn'] ~= nil then
+            minetest.log('action', '[anti_vpn] converting ' .. k)
+            v['blocked'] = v['vpn']
+            v['vpn'] = nil
+            converted = true
+        end
+    end
+    if converted then anti_vpn.flush_mod_storage() end
 end
 
 local function async_player_kick()
