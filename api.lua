@@ -203,22 +203,25 @@ local function process_queue()
             -- We'll reject the IP if any are true.
             for k, v in pairs(tbl.security) do blocked = blocked or v end
 
+            local asn =
+                tbl['network'] and tbl.network.autonomous_system_number or ''
+            local country = tbl['location'] and tbl.location.country_code or ''
+
             cache[ip] = cache[ip] or {}
             cache[ip]['blocked'] = blocked
             cache[ip]['created'] = os.time()
-
-            if tbl['network'] then
-                cache[ip]['asn'] = tbl.network.autonomous_system_number
-            end
-            if tbl['location'] then
-                cache[ip]['country'] = tbl.location.country_code
-            end
+            cache[ip]['asn'] = asn
+            cache[ip]['country'] = country
 
             anti_vpn.flush_mod_storage()
             queue[ip] = nil
 
-            minetest.log('action', '[anti_vpn] HTTP response: ' .. ip ..
-                             ' blocked: ' .. tostring(blocked))
+            -- Make the log message somewhat parseable w/ "awk", in case we
+            -- need to reconstruct our database from just the log files.
+            minetest.log('action',
+                         '[anti_vpn] HTTP response: ip:' .. ip .. ' blocked:' ..
+                             tostring(blocked) .. ' asn:' .. asn .. ' country:' ..
+                             country)
         else
             queue[ip] = nil
 
