@@ -53,6 +53,12 @@ Chat commands require the `staff` privilege (not registered with this mod).
 
   Queues a lookup for the given IP address.
 
+- `/anti_vpn flush`
+
+  Forcably flushes data to mod_storage, and if enabled, raw JSON text files.
+  Normally the mod will flush data after each lookup.  This command was added
+  to aide in development/debugging.
+
 
 ## Misc
 
@@ -95,6 +101,7 @@ Chat commands require the `staff` privilege (not registered with this mod).
 
    1. Edit `minetest.conf`:
       1. Add `anti_vpn.provider.vpnapi.url = http://localhost:48888`.
+      1. Add `anti_vpn.debug.json = true`.
       1. Add `anti_vpn` to `secure.http_mods`.
 
    1. Run the python script.  It runs in the foreground.
@@ -105,3 +112,15 @@ Chat commands require the `staff` privilege (not registered with this mod).
    1. Start a minetest server.
 
    1. Connect to the minetest server and conduct your testing.
+
+   1. Examine JSON dump of anti_vpn's data:
+
+      ```
+      # Dump raw data:
+      $ jq < ${WORLD_DIR}/anti_vpn_cache.json
+      $ jq < ${WORLD_DIR}/anti_vpn_immune.json
+
+      # List all IPs that were detected as a VPN endpoint:
+      $ jq -r 'keys[] as $k | .[$k] | select(.vpn) | $k' < \
+        ${WORLD_DIR}/anti_vpn_cache.json
+      ```

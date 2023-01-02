@@ -238,9 +238,20 @@ anti_vpn.on_joinplayer = function(player, last_login)
 end
 
 anti_vpn.flush_mod_storage = function()
-    mod_storage:set_string('cache', minetest.write_json(cache))
-    mod_storage:set_string('player_allow_list',
-                           minetest.write_json(player_allow_list))
+    local json_cache = minetest.write_json(cache)
+    local json_immune = minetest.write_json(player_allow_list)
+
+    mod_storage:set_string('cache', json_cache)
+    mod_storage:set_string('player_allow_list', json_immune)
+
+    -- For debugging.  mod_storage is powerful, but our data ends up being
+    -- double encoded as a JSON payload, stringified, as a JSON value in a
+    -- map.  Its a PITA to analyze offline.
+    if minetest.settings:get_bool('anti_vpn.debug.json', false) then
+        local dir = minetest.get_worldpath()
+        minetest.safe_file_write(dir .. '/anti_vpn_cache.json', json_cache)
+        minetest.safe_file_write(dir .. '/anti_vpn_immune.json', json_immune)
+    end
 end
 
 anti_vpn.init = function(http_api_provider)

@@ -4,6 +4,8 @@
 -- Attempts to prevent player logins from suspected VPN IP addresses.
 --
 --
+local ERROR_COLOR = minetest.get_color_escape_sequence '#FF8080'
+
 local mod_name = minetest.get_current_modname()
 dofile(minetest.get_modpath(mod_name) .. '/api.lua')
 
@@ -23,10 +25,18 @@ local function chat_cmd_handler(pname, param)
         if anti_vpn.is_valid_ip(parts[2]) then
             anti_vpn.enqueue_lookup(parts[2])
         else
-            minetest.chat_send_player(pname, 'invalid IP address: ' .. parts[2])
+            minetest.chat_send_player(pname, ERROR_COLOR ..
+                                          'invalid IP address: ' .. parts[2])
         end
         return
+    elseif (parts[1] == 'flush') then
+        anti_vpn.flush_mod_storage()
+        minetest.chat_send_player(pname, 'anti_vpn data flushed to storage.')
+        return
     end
+
+    minetest.chat_send_player(pname, ERROR_COLOR ..
+                                  'Unrecognized anti_vpn command: ' .. param)
 end
 
 anti_vpn.init(http_api)
