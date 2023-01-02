@@ -19,7 +19,7 @@ local ASYNC_WORKER_DELAY = 5
 
 -- For testing.  Normally this table should be empty.
 -- Map a player name (string) to an IPV4 address (string).
-local testdata_player_ip = {sysadmin = '188.214.122.101'}
+local testdata_player_ip = {}
 
 -- Passed from `init.lua`.  It can only be obtained from there.
 local http_api = nil
@@ -87,10 +87,14 @@ local function is_private_ip(ip)
     return false
 end
 
+local function get_kick_text(pname, ip)
+    return
+        'Connections from VPNs are not allowed.  Your IP address is ' .. ip ..
+            '. ' .. (minetest.settings:get('anti_vpn.kick_text') or '')
+end
+
 local function kick_player(pname, ip)
-    minetest.kick_player(pname,
-                         'Logins from VPNs are not allowed.  Your IP address: ' ..
-                             ip)
+    minetest.kick_player(pname, get_kick_text(pname, ip))
     minetest.log('warning',
                  '[anti_vpn] kicking player ' .. pname .. ' from ' .. ip)
 end
@@ -223,7 +227,9 @@ anti_vpn.on_prejoinplayer = function(pname, ip)
     ip = testdata_player_ip[pname] or ip -- Hack for testing.
     local found, blocked = anti_vpn.lookup(pname, ip)
     if found and blocked then
-        return 'Logins from VPNs are not allowed.  Your IP address: ' .. ip
+        minetest.log('warning',
+                     '[anti_vpn] blocking player ' .. pname .. ' from ' .. ip)
+        return get_kick_text(pname, ip)
     end
 
     if not found then anti_vpn.enqueue_lookup(ip) end

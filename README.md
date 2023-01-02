@@ -13,6 +13,7 @@ Minetest mod to block connections from known VPN egress IPs
    ```
    anti_vpn.provider.vpnapi.apikey = YOUR_PRIVATE_API_KEY_HERE.
    anti_vpn.provider.vpnapi.url = https://vpnapi.io
+   anti_vpn.kick_text = Any extra text you want appended to the kick message.
    ```
 
    Also add `anti_vpn` to `secure.http_mods`.
