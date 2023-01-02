@@ -255,7 +255,7 @@ end
 -- prejoin must return either 'nil' (allow the login) or a string (reject login
 -- with the string as the error message).
 anti_vpn.on_prejoinplayer = function(pname, ip)
-    if operator_mode == 'off' then return nil end
+    if operating_mode == 'off' then return nil end
 
     ip = testdata_player_ip[pname] or ip -- Hack for testing.
     local found, blocked = anti_vpn.lookup(pname, ip)
@@ -280,7 +280,7 @@ anti_vpn.on_joinplayer = function(player, last_login)
     local ip = anti_vpn.get_player_ip(pname) or ''
     local found, blocked = anti_vpn.lookup(pname, ip)
     if found and blocked then kick_player(pname, ip) end
-    if not found then enqueue_lookup(ip) end
+    if not found then anti_vpn.enqueue_lookup(ip) end
 end
 
 anti_vpn.flush_mod_storage = function()
@@ -366,4 +366,19 @@ anti_vpn.async_worker = function()
     minetest.after(ASYNC_WORKER_DELAY, anti_vpn.async_worker)
     async_player_kick()
     process_queue()
+end
+
+-- Misc functions to "clean" the database.
+anti_vpn.cleanup = function()
+    local redo_list = {}
+    for ip, v in pairs(cache) do
+        if (v['country'] == nil) or (v['asn'] == nil) then
+            table.insert(redo_list, ip)
+        end
+    end
+
+    for _, ip in ipairs(redo_list) do
+        cache[ip] = nil
+        anti_vpn.enqueue_lookup(ip)
+    end
 end
