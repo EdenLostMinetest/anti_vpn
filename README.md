@@ -45,6 +45,15 @@ periodic worker (via `minetest.after()`).
 The periodic callback checks the IP address for each connected player, and
 kicks any that map to a VPN.
 
+## Chat Commands
+
+Chat commands require the `staff` privilege (not registered with this mod).
+
+- `/anti_vpn add IPV4_ADDRESS`
+
+  Queues a lookup for the given IP address.
+
+
 ## Misc
 
 1. Check logs by looking for the string `anti_vpn`:
