@@ -1,6 +1,9 @@
 #!/bin/bash
 
+# $ pip3 install mdformat
 MDFORMAT="${HOME}/.local/bin/mdformat"
+
+# $luarocks install --server=https://luarocks.org/dev luaformatter
 LUAFORMAT="${HOME}/.luarocks/bin/lua-format"
 
 [[ -x "${MDFORMAT}" ]] && "${MDFORMAT}" --wrap=80 *.md
