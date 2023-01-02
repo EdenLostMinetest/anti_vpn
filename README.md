@@ -60,6 +60,19 @@ Chat commands require the `staff` privilege (not registered with this mod).
   Normally the mod will flush data after each lookup.  This command was added
   to aide in development/debugging.
 
+- `/anti_vpn mode [NEW_MODE]`
+
+  Reports the current operating mode, or sets it to a new value:
+
+  - `off` - Mod is effectively disabled. No join/prejoin/async checks are
+    performed, no HTTP requests are send.
+
+  - `dryrun` - Mod performs all normal behavior, except that players are not
+    actually blocked of kicked. Useful for testing the mode before "going live".
+
+  - `enforce` - Mod performs all normal behavior, and will actively block or
+    kick players who are connecting/connected from banned IPs.
+
 
 ## Misc
 

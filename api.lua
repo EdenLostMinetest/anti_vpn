@@ -24,6 +24,10 @@ local testdata_player_ip = {}
 -- Passed from `init.lua`.  It can only be obtained from there.
 local http_api = nil
 
+-- Operating mode (string).  Values are "off", "dryrun", "enforce".
+-- https://github.com/EdenLostMinetest/anti_vpn/issues/3
+local operating_mode = 'enforce'
+
 -- Cache of vpnapi.io lookups, in mod_storage().
 -- Key = IP address.
 -- Value = table:
@@ -94,13 +98,36 @@ local function get_kick_text(pname, ip)
 end
 
 local function kick_player(pname, ip)
-    minetest.kick_player(pname, get_kick_text(pname, ip))
-    minetest.log('warning',
-                 '[anti_vpn] kicking player ' .. pname .. ' from ' .. ip)
+    if operating_mode == 'enforce' then
+        minetest.kick_player(pname, get_kick_text(pname, ip))
+        minetest.log('warning',
+                     '[anti_vpn] kicking player ' .. pname .. ' from ' .. ip)
+    end
 end
 
 anti_vpn.get_player_ip = function(pname)
     return testdata_player_ip[pname] or minetest.get_player_ip(pname)
+end
+
+-- Returns text suitable for sending to player via chat message.
+anti_vpn.set_operating_mode = function(mode)
+    local valid_modes = {off = true, dryrun = true, enforce = true}
+    if valid_modes[mode] == nil then
+        return 'set_operating_mode("' .. mode .. '") is an invalid mode.' ..
+                   'Valid modes are "off", "dryrun", "enforce".'
+    end
+
+    local msg = 'Changing anti_vpn operating mode from ' .. operating_mode ..
+                    ' to ' .. mode
+    minetest.log('action', '[anti_vpn] ' .. msg)
+    operating_mode = mode
+    mod_storage:set_string('operating_mode', mode)
+    return msg
+end
+
+-- Returns raw operating mode string ("off", "dryrun", "enforce")
+anti_vpn.get_operating_mode = function()
+    return operating_mode
 end
 
 -- Returns table:
@@ -109,6 +136,8 @@ end
 anti_vpn.lookup = function(pname, ip)
     assert(type(pname) == 'string')
     assert(type(ip) == 'string')
+
+    if operating_mode == 'off' then return true, false end
 
     if player_allow_list[pname] then return true, false end
 
@@ -121,6 +150,8 @@ end
 
 -- Called on demand, and from async timer, to serially process the queue.
 local function process_queue()
+    if operating_mode == 'off' then return end
+
     -- Only one request at a time please.
     if active_requests > 0 then return end
 
@@ -224,12 +255,19 @@ end
 -- prejoin must return either 'nil' (allow the login) or a string (reject login
 -- with the string as the error message).
 anti_vpn.on_prejoinplayer = function(pname, ip)
+    if operator_mode == 'off' then return nil end
+
     ip = testdata_player_ip[pname] or ip -- Hack for testing.
     local found, blocked = anti_vpn.lookup(pname, ip)
     if found and blocked then
         minetest.log('warning',
-                     '[anti_vpn] blocking player ' .. pname .. ' from ' .. ip)
-        return get_kick_text(pname, ip)
+                     '[anti_vpn] blocking player ' .. pname .. ' from ' .. ip ..
+                         ' mode=' .. operating_mode)
+        if operating_mode == 'enforce' then
+            return get_kick_text(pname, ip)
+        else
+            return nil
+        end
     end
 
     if not found then anti_vpn.enqueue_lookup(ip) end
@@ -264,6 +302,10 @@ end
 
 anti_vpn.init = function(http_api_provider)
     http_api = http_api_provider
+
+    operating_mode = (mod_storage:contains('operating_mode') and
+                         mod_storage:get_string('operating_mode')) or 'enforce'
+    minetest.log('action', '[anti_vpn] operating_mode: ' .. operating_mode)
 
     local json = mod_storage:get('cache')
     cache = json and minetest.parse_json(json) or {}
@@ -301,6 +343,8 @@ anti_vpn.init = function(http_api_provider)
 end
 
 local function async_player_kick()
+    if operating_mode ~= 'enforce' then return end
+
     local count = 0
     for _, player in ipairs(minetest.get_connected_players()) do
         local pname = player:get_player_name()
