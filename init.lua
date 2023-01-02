@@ -33,6 +33,10 @@ local function chat_cmd_handler(pname, param)
         anti_vpn.flush_mod_storage()
         minetest.chat_send_player(pname, 'anti_vpn data flushed to storage.')
         return
+    elseif (parts[1] == 'cleanup') then
+        anti_vpn.cleanup()
+        minetest.chat_send_player(pname, 'anti_vpn cleanup initiated.')
+        return
     elseif (parts[1] == 'mode') then
         if (type(parts[2]) == 'string') then
             local msg = anti_vpn.set_operating_mode(parts[2])

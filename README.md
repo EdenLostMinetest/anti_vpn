@@ -55,6 +55,12 @@ Chat commands require the `staff` privilege (not registered with this mod).
 
   Queues a lookup for the given IP address.
 
+- `/anti_vpn cleanup`
+
+  Initiate a background "cleanup" of the cached data. Currently, this refetches
+  all IP lookups that were missing a 'country' or 'asn' (from an earlier version
+  of this mod).
+
 - `/anti_vpn flush`
 
   Forcably flushes data to mod_storage, and if enabled, raw JSON text files.
