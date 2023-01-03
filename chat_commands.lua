@@ -26,7 +26,7 @@ local function chat_cmd_ip(pname, parts)
     local ip_list = {}
     local idx = 3
     while parts[idx] do
-        ip = resolve_ip(parts[idx])
+        local ip = resolve_ip(parts[idx])
         if ip then
             table.insert(ip_list, ip)
         else
