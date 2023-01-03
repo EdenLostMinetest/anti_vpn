@@ -165,6 +165,10 @@ Chat commands require the `staff` privilege (not registered with this mod).
       $ jq < ${WORLD_DIR}/anti_vpn_immune.json
 
       # List all IPs that were detected as a VPN endpoint:
-      $ jq -r 'keys[] as $k | .[$k] | select(.vpn) | $k' < \
+      $ jq -r 'keys[] as $k | .[$k] | select(.blocked) | $k' < \
+        ${WORLD_DIR}/anti_vpn_cache.json
+
+      # List all IPs that were manually entered:
+      $ jq -r 'keys[] as $k | .[$k] | select(.provider == "manual") | {ip: $k, blocked: .blocked}' < \
         ${WORLD_DIR}/anti_vpn_cache.json
       ```

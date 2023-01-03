@@ -151,14 +151,15 @@ end
 anti_vpn.add_override_ip = function(ip, blocked)
     if not anti_vpn.is_valid_ip(ip) then return end
 
-    local asn = cache[ip] and cache[ip]['asn'] or 'manual-entry'
-    local country = cache[ip] and cache[ip]['country'] or 'manual-entry'
+    local asn = cache[ip] and cache[ip]['asn'] or ''
+    local country = cache[ip] and cache[ip]['country'] or ''
 
     cache[ip] = {
-        blocked = blocked,
-        created = os.time(),
         asn = asn,
-        country = country
+        blocked = blocked,
+        country = country,
+        created = os.time(),
+        provider = 'manual'
     }
 
     queue[ip] = nil
@@ -235,10 +236,11 @@ local function process_queue()
             local country = tbl['location'] and tbl.location.country_code or ''
 
             cache[ip] = cache[ip] or {}
-            cache[ip]['blocked'] = blocked
-            cache[ip]['created'] = os.time()
             cache[ip]['asn'] = asn
+            cache[ip]['blocked'] = blocked
             cache[ip]['country'] = country
+            cache[ip]['created'] = os.time()
+            cache[ip]['provider'] = 'vpnapi'
 
             anti_vpn.flush_mod_storage()
             queue[ip] = nil
@@ -404,13 +406,7 @@ end
 anti_vpn.cleanup = function()
     local redo_list = {}
     for ip, v in pairs(cache) do
-        if (v['country'] == nil) or (v['asn'] == nil) then
-            table.insert(redo_list, ip)
-        end
-    end
-
-    for _, ip in ipairs(redo_list) do
-        cache[ip] = nil
-        anti_vpn.enqueue_lookup(ip)
+        -- Track provider now.
+        if (v['provider'] == nil) then v['provider'] = 'vpnapi' end
     end
 end
