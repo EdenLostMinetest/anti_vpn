@@ -404,9 +404,7 @@ end
 
 -- Misc functions to "clean" the database.
 anti_vpn.cleanup = function()
-    local redo_list = {}
     for ip, v in pairs(cache) do
-        -- Track provider now.
-        if (v['provider'] == nil) then v['provider'] = 'vpnapi' end
+        -- Do stuff here.
     end
 end
