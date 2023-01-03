@@ -340,26 +340,12 @@ anti_vpn.flush_mod_storage = function()
     end
 end
 
-local function rename_storage(old, new)
-    if mod_storage:contains(old) and not mod_storage:contains(new) then
-        mod_storage:set_string(new, mod_storage:get_string(old))
-        mod_storage:set_string(old, '')
-        minetest.log('action',
-                     '[anti_vpn] renaming mod_storage ' .. old .. ' to ' .. new)
-    end
-end
-
 anti_vpn.init = function(http_api_provider)
     http_api = http_api_provider
 
     operating_mode = (mod_storage:contains('operating_mode') and
                          mod_storage:get_string('operating_mode')) or 'enforce'
     minetest.log('action', '[anti_vpn] operating_mode: ' .. operating_mode)
-
-    -- Rename some storage objects.
-    -- TODO: Remove this code when no longer needed.
-    rename_storage('cache', 'ip_data')
-    rename_storage('player_allow_list', 'players')
 
     local json = mod_storage:get('ip_data')
     ip_data = json and minetest.parse_json(json) or {}
