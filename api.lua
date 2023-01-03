@@ -148,6 +148,33 @@ anti_vpn.lookup = function(pname, ip)
     return true, cache[ip]['blocked']
 end
 
+anti_vpn.add_override_ip = function(ip, blocked)
+    if not anti_vpn.is_valid_ip(ip) then return end
+
+    local asn = cache[ip] and cache[ip]['asn'] or 'manual-entry'
+    local country = cache[ip] and cache[ip]['country'] or 'manual-entry'
+
+    cache[ip] = {
+        blocked = blocked,
+        created = os.time(),
+        asn = asn,
+        country = country
+    }
+
+    queue[ip] = nil
+
+    anti_vpn.flush_mod_storage()
+end
+
+anti_vpn.delete_ip = function(ip)
+    if not anti_vpn.is_valid_ip(ip) then return end
+
+    cache[ip] = nil
+    queue[ip] = nil
+
+    anti_vpn.flush_mod_storage()
+end
+
 -- Called on demand, and from async timer, to serially process the queue.
 local function process_queue()
     if operating_mode == 'off' then return end
@@ -240,6 +267,8 @@ end
 -- If IP is in cache, do nothing.  If not, queue up a remote lookup.
 -- Returns nothing.
 anti_vpn.enqueue_lookup = function(ip)
+    if not anti_vpn.is_valid_ip(ip) then return end
+
     -- Don't bother looking up private/LAN IPs.
     if is_private_ip(ip) then return end
 

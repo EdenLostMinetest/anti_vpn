@@ -36,8 +36,8 @@ address belongs to a known VPN, the prejoin is rejected. If the IP address is
 unknown to the cache, then a background lookup (external http request) is
 initiated, and the prejoin is allowed to proceed.
 
-When a player joins, the same lookup is performed, and if the player's IP is a
-VPN endpoint, then the player is kicked.
+When a player joins, the same lookup is performed, and if the player's IP
+address is a VPN endpoint, then the player is kicked.
 
 When the HTTP request is finished, the cache is updated, but no players are
 instantly kicked. The HTTP response can arrive before, during or after a player
@@ -58,14 +58,38 @@ Chat commands require the `staff` privilege (not registered with this mod).
 - `/anti_vpn cleanup`
 
   Initiate a background "cleanup" of the cached data. Currently, this refetches
-  all IP lookups that were missing a 'country' or 'asn' (from an earlier version
-  of this mod).
+  all IP address lookups that were missing a 'country' or 'asn' (from an earlier
+  version of this mod).
 
 - `/anti_vpn flush`
 
   Forcably flushes data to mod_storage, and if enabled, raw JSON text files.
   Normally the mod will flush data after each lookup. This command was added to
   aide in development/debugging.
+
+- `/anti_vpn ip VERB LIST...`
+
+  Apply action 'VERB' to the LIST of objects (space separated IP addresses or
+  player names). If the list contains a name of a connected player, their IP
+  address is used. Any other items in the LIST are ignored.
+
+  VERBS:
+
+  - `add` - Queue a remote lookup of each IP address from the list.
+
+  - `del` or `delete` or `rm` - Remove cached results for each IP address in the
+    list. Note that the next time a player from this IP address connects, the IP
+    address will be automatically queued for a remote lookup.
+
+  - `allow` - Allow connections from IP addresses in the list (ignore results of
+    the remote lookup).
+
+  - `deny` - Block connections from IP addresses in the list (ignore results of
+    the remote lookup).
+
+  Note: The only purpose for accepting player names with the `ip` command is to
+  obtain their IP addresses. Blocking by player name is not implemented with the
+  `ip` command.
 
 - `/anti_vpn mode [NEW_MODE]`
 
