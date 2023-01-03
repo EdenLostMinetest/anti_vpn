@@ -104,6 +104,13 @@ Chat commands require the `staff` privilege (not registered with this mod).
   - `enforce` - Mod performs all normal behavior, and will actively block or
     kick players who are connecting/connected from banned IPs.
 
+- `/anti_vpn stats`
+
+  Report some generic stats via chat. If you have any better ideas, please send
+  a pull request.
+
+  Ex: `anti_vpn stats: total: 101, blocked: 4 (3.9604%)`
+
 ## Misc
 
 1. Check logs by looking for the string `anti_vpn`:

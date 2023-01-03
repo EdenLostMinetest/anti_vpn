@@ -78,6 +78,8 @@ local function chat_cmd_handler(pname, param)
         chat_cmd_mode(pname, parts)
     elseif (parts[1] == 'ip') then
         chat_cmd_ip(pname, parts)
+    elseif (parts[1] == 'stats') then
+        minetest.chat_send_player(pname, anti_vpn.get_stats_string())
     else
         minetest.chat_send_player(pname, ERROR_COLOR ..
                                       'Unrecognized anti_vpn command: ' .. param)

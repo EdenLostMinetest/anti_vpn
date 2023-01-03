@@ -413,3 +413,18 @@ anti_vpn.cleanup = function()
         -- Do stuff here.
     end
 end
+
+-- Returns a string for use in a chat message.
+anti_vpn.get_stats_string = function()
+    local total = 0
+    local blocked = 0
+
+    for ip, v in pairs(ip_data) do
+        total = total + 1
+        if v.blocked then blocked = blocked + 1 end
+    end
+
+    local perc = (total and (100.0 * blocked / total)) or 0.0
+    return 'anti_vpn stats: total: ' .. total .. ', blocked: ' .. blocked ..
+               ' (' .. string.format('%.4f', perc) .. '%)'
+end
