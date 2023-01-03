@@ -33,20 +33,24 @@ local operating_mode = 'enforce'
 -- Value = table:
 --   'asn' (string) autonomous system number.
 --   'blocked' (boolean).
---   'created' (seconds since unix epoch).
 --   'country' (string) two-letter country code.
-local cache = {}
+--   'created' (seconds since unix epoch).
+--   'provider' (string) internal name for where this data came from.
+local ip_data = {}
 
 -- Queue of IP addresses that we need to lookup.
 -- Key = IP.  Value = timestamp submitted (used for pruning stale entries).
-local queue = {}
+local ip_queue = {}
 
 -- Count of outstanding HTTP requests.
 local active_requests = 0
 
--- Allow list of players who can bypass anti_vpn checks, in mod_storage().
--- Key = player name, Value = true.
-local player_allow_list = {}
+-- Allow/Deny/Lockdown info, per player.
+-- Key = player name
+-- Value = table:
+--  'banned' (bool) outright ban the player.
+--  'bypass' (bool) always allow the player.
+local player_data = {}
 
 -- Storage backing the cache.
 local mod_storage = minetest.get_mod_storage()
@@ -131,7 +135,7 @@ anti_vpn.get_operating_mode = function()
 end
 
 -- Returns table:
---   [1] (bool) "found" - Was the IP found in the cache?
+--   [1] (bool) "found" - Was the IP found in the ip_data?
 --   [2] (bool) "blocked" - Should we reject the user from this IP address?
 anti_vpn.lookup = function(pname, ip)
     assert(type(pname) == 'string')
@@ -139,22 +143,24 @@ anti_vpn.lookup = function(pname, ip)
 
     if operating_mode == 'off' then return true, false end
 
-    if player_allow_list[pname] then return true, false end
+    if player_data[pname] and player_data[pname].bypass then
+        return true, false
+    end
 
     if is_private_ip(ip) then return true, false end
 
-    if cache[ip] == nil then return false, false end
+    if ip_data[ip] == nil then return false, false end
 
-    return true, cache[ip]['blocked']
+    return true, ip_data[ip]['blocked']
 end
 
 anti_vpn.add_override_ip = function(ip, blocked)
     if not anti_vpn.is_valid_ip(ip) then return end
 
-    local asn = cache[ip] and cache[ip]['asn'] or ''
-    local country = cache[ip] and cache[ip]['country'] or ''
+    local asn = ip_data[ip] and ip_data[ip]['asn'] or ''
+    local country = ip_data[ip] and ip_data[ip]['country'] or ''
 
-    cache[ip] = {
+    ip_data[ip] = {
         asn = asn,
         blocked = blocked,
         country = country,
@@ -162,7 +168,7 @@ anti_vpn.add_override_ip = function(ip, blocked)
         provider = 'manual'
     }
 
-    queue[ip] = nil
+    ip_queue[ip] = nil
 
     anti_vpn.flush_mod_storage()
 end
@@ -170,21 +176,21 @@ end
 anti_vpn.delete_ip = function(ip)
     if not anti_vpn.is_valid_ip(ip) then return end
 
-    cache[ip] = nil
-    queue[ip] = nil
+    ip_data[ip] = nil
+    ip_queue[ip] = nil
 
     anti_vpn.flush_mod_storage()
 end
 
--- Called on demand, and from async timer, to serially process the queue.
-local function process_queue()
+-- Called on demand, and from async timer, to serially process the ip_queue.
+local function process_ip_queue()
     if operating_mode == 'off' then return end
 
     -- Only one request at a time please.
     if active_requests > 0 then return end
 
-    -- Is the queue empty?
-    if next(queue) == nil then return end
+    -- Is the ip_queue empty?
+    if next(ip_queue) == nil then return end
 
     -- Is the HTTP API properly loaded?
     if http_api == nil then
@@ -194,7 +200,7 @@ local function process_queue()
         return
     end
 
-    local ip = next(queue)
+    local ip = next(ip_queue)
 
     active_requests = active_requests + 1
 
@@ -235,15 +241,15 @@ local function process_queue()
                 tbl['network'] and tbl.network.autonomous_system_number or ''
             local country = tbl['location'] and tbl.location.country_code or ''
 
-            cache[ip] = cache[ip] or {}
-            cache[ip]['asn'] = asn
-            cache[ip]['blocked'] = blocked
-            cache[ip]['country'] = country
-            cache[ip]['created'] = os.time()
-            cache[ip]['provider'] = 'vpnapi'
+            ip_data[ip] = ip_data[ip] or {}
+            ip_data[ip]['asn'] = asn
+            ip_data[ip]['blocked'] = blocked
+            ip_data[ip]['country'] = country
+            ip_data[ip]['created'] = os.time()
+            ip_data[ip]['provider'] = 'vpnapi'
 
             anti_vpn.flush_mod_storage()
-            queue[ip] = nil
+            ip_queue[ip] = nil
 
             -- Make the log message somewhat parseable w/ "awk", in case we
             -- need to reconstruct our database from just the log files.
@@ -252,7 +258,7 @@ local function process_queue()
                              tostring(blocked) .. ' asn:' .. asn .. ' country:' ..
                              country)
         else
-            queue[ip] = nil
+            ip_queue[ip] = nil
 
             minetest.log('error', '[anti_vpn] HTTP request failed for ' .. ip)
             minetest.log('error', dump(result))
@@ -262,11 +268,11 @@ local function process_queue()
 
         -- Start a new lookup immediately, if we have one, and if previous
         -- was successful.
-        if result.succeeded then process_queue() end
+        if result.succeeded then process_ip_queue() end
     end)
 end
 
--- If IP is in cache, do nothing.  If not, queue up a remote lookup.
+-- If IP is in ip_data, do nothing.  If not, queue up a remote lookup.
 -- Returns nothing.
 anti_vpn.enqueue_lookup = function(ip)
     if not anti_vpn.is_valid_ip(ip) then return end
@@ -275,15 +281,15 @@ anti_vpn.enqueue_lookup = function(ip)
     if is_private_ip(ip) then return end
 
     -- If IP is already cached, then do nothing.
-    if cache[ip] ~= nil then return end
+    if ip_data[ip] ~= nil then return end
 
     -- If IP is already queued, then do nothing.
-    if queue[ip] ~= nil then return end
+    if ip_queue[ip] ~= nil then return end
 
-    queue[ip] = os.time();
+    ip_queue[ip] = os.time();
     minetest.log('action', '[anti_vpn] Queueing request for ' .. ip)
 
-    process_queue()
+    process_ip_queue()
 end
 
 -- prejoin must return either 'nil' (allow the login) or a string (reject login
@@ -318,19 +324,28 @@ anti_vpn.on_joinplayer = function(player, last_login)
 end
 
 anti_vpn.flush_mod_storage = function()
-    local json_cache = minetest.write_json(cache)
-    local json_immune = minetest.write_json(player_allow_list)
+    local json_ip_data = minetest.write_json(ip_data)
+    local json_players = minetest.write_json(player_data)
 
-    mod_storage:set_string('cache', json_cache)
-    mod_storage:set_string('player_allow_list', json_immune)
+    mod_storage:set_string('ip_data', json_ip_data)
+    mod_storage:set_string('players', json_players)
 
     -- For debugging.  mod_storage is powerful, but our data ends up being
     -- double encoded as a JSON payload, stringified, as a JSON value in a
-    -- map.  Its a PITA to analyze offline.
+    -- map.  Its a PITA to analyze offline.  See README.md for `jq` recipes.
     if minetest.settings:get_bool('anti_vpn.debug.json', false) then
         local dir = minetest.get_worldpath()
-        minetest.safe_file_write(dir .. '/anti_vpn_cache.json', json_cache)
-        minetest.safe_file_write(dir .. '/anti_vpn_immune.json', json_immune)
+        minetest.safe_file_write(dir .. '/anti_vpn_ip_data.json', json_ip_data)
+        minetest.safe_file_write(dir .. '/anti_vpn_players.json', json_players)
+    end
+end
+
+local function rename_storage(old, new)
+    if mod_storage:contains(old) and not mod_storage:contains(new) then
+        mod_storage:set_string(new, mod_storage:get_string(old))
+        mod_storage:set_string(old, '')
+        minetest.log('action',
+                     '[anti_vpn] renaming mod_storage ' .. old .. ' to ' .. new)
     end
 end
 
@@ -341,16 +356,20 @@ anti_vpn.init = function(http_api_provider)
                          mod_storage:get_string('operating_mode')) or 'enforce'
     minetest.log('action', '[anti_vpn] operating_mode: ' .. operating_mode)
 
-    local json = mod_storage:get('cache')
-    cache = json and minetest.parse_json(json) or {}
-    minetest.log('action', '[anti_vpn] Loaded ' .. count_keys(cache) ..
-                     ' cached IP lookups.')
+    -- Rename some storage objects.
+    -- TODO: Remove this code when no longer needed.
+    rename_storage('cache', 'ip_data')
+    rename_storage('player_allow_list', 'players')
 
-    json = mod_storage:get('player_allow_list')
-    player_allow_list = json and minetest.parse_json(json) or {}
+    local json = mod_storage:get('ip_data')
+    ip_data = json and minetest.parse_json(json) or {}
     minetest.log('action',
-                 '[anti_vpn] Loaded ' .. count_keys(player_allow_list) ..
-                     ' immune players.')
+                 '[anti_vpn] Loaded ' .. count_keys(ip_data) .. ' IP lookups.')
+
+    json = mod_storage:get('players')
+    player_data = json and minetest.parse_json(json) or {}
+    minetest.log('action',
+                 '[anti_vpn] Loaded ' .. count_keys(player_data) .. ' players.')
 
     apikey = minetest.settings:get('anti_vpn.provider.vpnapi.apikey')
     if apikey == nil then
@@ -365,7 +384,7 @@ anti_vpn.init = function(http_api_provider)
     -- Temp code.  We changed the key from 'vpn' to 'blocked'.
     -- TODO: Remove once production server is updated.
     local converted = false
-    for k, v in pairs(cache) do
+    for k, v in pairs(ip_data) do
         if v['vpn'] ~= nil then
             minetest.log('action', '[anti_vpn] converting ' .. k)
             v['blocked'] = v['vpn']
@@ -399,12 +418,12 @@ end
 anti_vpn.async_worker = function()
     minetest.after(ASYNC_WORKER_DELAY, anti_vpn.async_worker)
     async_player_kick()
-    process_queue()
+    process_ip_queue()
 end
 
 -- Misc functions to "clean" the database.
 anti_vpn.cleanup = function()
-    for ip, v in pairs(cache) do
+    for ip, v in pairs(ip_data) do
         -- Do stuff here.
     end
 end
